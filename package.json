@@ -1,0 +1,42 @@
+{
+  "name": "hearthform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hearthform — a full-stack, AI-assisted renovation studio.",
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "test:watch": "node --test --watch --import tsx tests/*.test.ts",
+    "db:init": "tsx scripts/init-db.ts"
+  },
+  "dependencies": {
+    "@fal-ai/client": "^1.8.1",
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^13.0.3",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "jose": "^6.1.2",
+    "lucide-react": "^1.48.0",
+    "next": "^16.3.6",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.19.15",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

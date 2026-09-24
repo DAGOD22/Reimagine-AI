@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Local environment secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Persistent local application data
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Test / tooling
+coverage/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+
+# Generated TypeScript
+*.tsbuildinfo
+next-env.d.ts
