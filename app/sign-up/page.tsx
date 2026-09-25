@@ -7,8 +7,13 @@ import { AuthForm } from "@/components/auth-form";
 
 export const metadata: Metadata = { title: "Create account" };
 
-export default async function SignUpPage() {
-  if (await getCurrentUser()) redirect("/dashboard");
+export default async function SignUpPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const query = await searchParams;
+  if (query.password !== undefined || query.email !== undefined || query.name !== undefined) {
+    redirect("/sign-up?error=credentials_removed");
+  }
+  const user = await getCurrentUser();
+  if (user && !user.isGuest) redirect("/dashboard");
   return (
     <main className="auth-page">
       <div className="auth-brand-panel signup-art">

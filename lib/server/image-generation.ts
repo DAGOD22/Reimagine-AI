@@ -10,6 +10,7 @@ import { generationPrompt as buildGenerationPrompt } from "@/lib/server/ai-promp
 import { callOpenRouter } from "@/lib/server/openrouter";
 import { createMediaToken, getPublicOrigin } from "@/lib/server/security";
 import { getImageRow, getLatestOriginal, getReferenceImages, saveImageBuffer } from "@/lib/server/images";
+import { getProjectFileRows } from "@/lib/server/files";
 import { recordAiStatus } from "@/lib/server/ai-status";
 import { requireProject } from "@/lib/server/projects";
 import { safeJsonParse } from "@/lib/utils";
@@ -184,6 +185,7 @@ export async function generateRedesign(input: {
     throw new ApiError(400, "BASE_IMAGE_REQUIRED", "The source image for this redesign could not be found.", "invalid_image", true);
   }
   const references = getReferenceImages(input.projectId, input.userId);
+  const documents = getProjectFileRows(input.projectId, input.userId);
   const iteration = base.kind === "generated";
   const brain = await callOpenRouter<GenerationPrompt>({
     userId: input.userId,
@@ -200,6 +202,13 @@ export async function generateRedesign(input: {
       { path: base.file_path, mimeType: base.mime_type, label: iteration ? "CURRENT GENERATED VERSION TO EDIT" : "ORIGINAL SPACE PHOTOGRAPH TO EDIT" },
       ...references.map((row, index) => ({ path: row.file_path, mimeType: row.mime_type, label: `REFERENCE INSPIRATION ${index + 1}` })),
     ],
+    files: documents.map((row, index) => ({
+      path: row.file_path,
+      mimeType: row.mime_type,
+      filename: row.filename,
+      extractedText: row.extracted_text,
+      label: `PROJECT DOCUMENT ${index + 1}`,
+    })),
     schema: generationPromptSchema,
   });
   const finalPrompt = `${brain.data.prompt}\nPreserve: ${brain.data.preserve.join("; ")}.\nChange: ${brain.data.change.join("; ")}.\nAvoid: ${brain.data.negativeInstructions.join("; ")}.`;

@@ -9,7 +9,7 @@ import { titleCase } from "@/lib/utils";
 
 type ProjectCard = { id: string; name: string; roomType: string; status: string; updatedAt: string; createdAt: string; versionCount: number; thumbnailUrl: string | null };
 
-export function DashboardClient() {
+export function DashboardClient({ isGuest = false }: { isGuest?: boolean }) {
   const [projects, setProjects] = useState<ProjectCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -45,7 +45,9 @@ export function DashboardClient() {
     <main className="dashboard-page">
       <header className="dashboard-header">
         <div><span className="kicker">Private design studio</span><h1>My Projects</h1><p>Every space, plan, and iteration in one place.</p></div>
-        <Link href="/projects/new" className="button button-primary"><Plus size={18} /> New project</Link>
+        {isGuest && projects.length > 0
+          ? <Link href="/sign-up" className="button button-primary"><ArrowRight size={18} /> Save demo & unlock more</Link>
+          : <Link href="/projects/new" className="button button-primary"><Plus size={18} /> New project</Link>}
       </header>
       {error && <div className="inline-error"><div><strong>Projects could not be loaded</strong><p>{error}</p></div><button className="button button-secondary button-sm" onClick={load}><RefreshCw size={15} /> Try again</button></div>}
       {loading ? (
@@ -71,7 +73,7 @@ export function DashboardClient() {
                 <div className="project-info">
                   <div><span>{titleCase(project.roomType)}</span><h2><Link href={`/projects/${project.id}`}>{project.name}</Link></h2></div>
                   <button className="icon-button" onClick={() => setMenu(menu === project.id ? null : project.id)} aria-label={`Actions for ${project.name}`}><MoreHorizontal size={19} /></button>
-                  {menu === project.id && <div className="card-menu"><Link href={`/projects/${project.id}`}><FolderOpen size={16} /> Open</Link><button onClick={() => rename(project)}><Pencil size={16} /> Rename</button><button onClick={() => duplicate(project)}><Copy size={16} /> Duplicate</button><button className="danger" onClick={() => remove(project)}><Trash2 size={16} /> Delete</button></div>}
+                  {menu === project.id && <div className="card-menu"><Link href={`/projects/${project.id}`}><FolderOpen size={16} /> Open</Link><button onClick={() => rename(project)}><Pencil size={16} /> Rename</button>{!isGuest && <><button onClick={() => duplicate(project)}><Copy size={16} /> Duplicate</button><button className="danger" onClick={() => remove(project)}><Trash2 size={16} /> Delete</button></>}</div>}
                 </div>
                 <div className="project-meta"><span>Edited {formatDistanceToNow(new Date(project.updatedAt), { addSuffix: true })}</span><span>{project.versionCount} {project.versionCount === 1 ? "version" : "versions"}</span></div>
               </article>

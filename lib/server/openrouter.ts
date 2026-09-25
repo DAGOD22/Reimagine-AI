@@ -11,6 +11,13 @@ import { ApiError, asApiError } from "@/lib/server/errors";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 type VisionImage = { path: string; mimeType: string; label: string };
+type ProjectDocument = {
+  path: string;
+  mimeType: string;
+  label: string;
+  filename: string;
+  extractedText?: string;
+};
 
 type OpenRouterResponse = {
   id?: string;
@@ -77,12 +84,46 @@ export function parseModelJson(raw: string): unknown {
   }
 }
 
+async function repairStructuredOutput(input: {
+  key: string;
+  raw: string;
+  taskPrompt: string;
+  issues: string[];
+}) {
+  const response = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.key}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.APP_URL || "https://hearthform.local",
+      "X-Title": "Hearthform",
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [{
+        role: "user",
+        content: `Repair the invalid structured response below. Return only one valid JSON object, with no markdown or commentary. Preserve grounded facts and do not invent missing observations. Follow the original required shape.\n\nORIGINAL TASK AND SHAPE:\n${input.taskPrompt.slice(0, 12_000)}\n\nVALIDATION ISSUES:\n${input.issues.slice(0, 20).join("\n")}\n\nINVALID RESPONSE:\n${input.raw.slice(0, 35_000)}`,
+      }],
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 7000,
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!response.ok) throw providerError(response.status, "Structured response repair failed");
+  const payload = (await response.json().catch(() => ({}))) as OpenRouterResponse;
+  const repaired = extractContent(payload);
+  if (!repaired) throw new ApiError(502, "OPENROUTER_EMPTY_REPAIR", "OpenRouter could not repair its structured response.", "malformed_response", true);
+  return repaired;
+}
+
 export async function callOpenRouter<T>(input: {
   userId: string;
   projectId?: string;
   task: string;
   prompt: string;
   images?: VisionImage[];
+  files?: ProjectDocument[];
   schema: AiSchema;
 }): Promise<{ data: T; raw: string; requestId?: string; latencyMs: number }> {
   const key = process.env.OPENROUTER_API_KEY;
@@ -99,6 +140,7 @@ export async function callOpenRouter<T>(input: {
   }
 
   const started = Date.now();
+  const attachmentCount = (input.images?.length || 0) + (input.files?.length || 0);
   recordAiStatus({
     userId: input.userId,
     projectId: input.projectId,
@@ -106,7 +148,7 @@ export async function callOpenRouter<T>(input: {
     status: "running",
     provider: "OpenRouter",
     model: OPENROUTER_MODEL,
-    imageCount: input.images?.length || 0,
+    imageCount: attachmentCount,
   });
 
   const preferences = getDb()
@@ -124,6 +166,24 @@ export async function callOpenRouter<T>(input: {
       image_url: { url: `data:${image.mimeType};base64,${bytes.toString("base64")}`, detail: "high" },
     });
   }
+  for (const file of input.files || []) {
+    if (file.extractedText) {
+      content.push({
+        type: "text",
+        text: `${file.label} (${file.filename}):\n${file.extractedText.slice(0, 80_000)}`,
+      });
+    } else {
+      const bytes = await fs.readFile(file.path);
+      content.push({ type: "text", text: file.label });
+      content.push({
+        type: "file",
+        file: {
+          filename: file.filename,
+          file_data: `data:${file.mimeType};base64,${bytes.toString("base64")}`,
+        },
+      });
+    }
+  }
 
   let response: Response;
   try {
@@ -139,8 +199,16 @@ export async function callOpenRouter<T>(input: {
         model: OPENROUTER_MODEL,
         messages: [{ role: "user", content }],
         response_format: { type: "json_object" },
-        temperature: 0.2,
-        max_tokens: 7000,
+        reasoning: { effort: process.env.OPENROUTER_REASONING_EFFORT || "high", exclude: true },
+        provider: { allow_fallbacks: true, require_parameters: true },
+        plugins: [
+          { id: "response-healing" },
+          ...(input.files?.some((file) => file.mimeType === "application/pdf")
+            ? [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }]
+            : []),
+        ],
+        temperature: 0.15,
+        max_tokens: 16_000,
       }),
       signal: AbortSignal.timeout(150_000),
     });
@@ -153,7 +221,7 @@ export async function callOpenRouter<T>(input: {
       "network",
       true,
     );
-    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "error", provider: "OpenRouter", model: OPENROUTER_MODEL, error, latencyMs: Date.now() - started, imageCount: input.images?.length || 0 });
+    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "error", provider: "OpenRouter", model: OPENROUTER_MODEL, error, latencyMs: Date.now() - started, imageCount: attachmentCount });
     throw error;
   }
 
@@ -161,7 +229,7 @@ export async function callOpenRouter<T>(input: {
   const body = (await response.json().catch(() => ({}))) as OpenRouterResponse;
   if (!response.ok) {
     const error = providerError(response.status, body.error?.message || "Provider request failed");
-    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "error", provider: "OpenRouter", model: OPENROUTER_MODEL, error, httpStatus: response.status, latencyMs: Date.now() - started, imageCount: input.images?.length || 0, requestId });
+    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "error", provider: "OpenRouter", model: OPENROUTER_MODEL, error, httpStatus: response.status, latencyMs: Date.now() - started, imageCount: attachmentCount, requestId });
     throw error;
   }
 
@@ -170,24 +238,47 @@ export async function callOpenRouter<T>(input: {
     if (!raw) {
       throw new ApiError(502, "OPENROUTER_EMPTY_RESPONSE", "OpenRouter returned an empty response.", "malformed_response", true);
     }
-    const parsed = parseModelJson(raw);
-    const validated = input.schema.safeParse(parsed);
+    let effectiveRaw = raw;
+    let parsed: unknown;
+    let issueMessages: string[] = [];
+    try {
+      parsed = parseModelJson(effectiveRaw);
+    } catch {
+      parsed = null;
+      issueMessages = ["Response is not valid JSON."];
+    }
+    let validated = input.schema.safeParse(parsed);
     if (!validated.success) {
-      throw new ApiError(
-        502,
-        "OPENROUTER_SCHEMA_MISMATCH",
-        "OpenRouter returned structured data in an unexpected format. Try again.",
-        "malformed_response",
-        true,
-        { issueCount: validated.error.issues.length },
-      );
+      issueMessages = [
+        ...issueMessages,
+        ...validated.error.issues.map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`),
+      ];
+      recordAiStatus({ userId: input.userId, projectId: input.projectId, task: `${input.task}_repair`, status: "running", provider: "OpenRouter", model: OPENROUTER_MODEL, imageCount: 0 });
+      effectiveRaw = await repairStructuredOutput({
+        key,
+        raw,
+        taskPrompt: input.prompt,
+        issues: issueMessages,
+      });
+      validated = input.schema.safeParse(parseModelJson(effectiveRaw));
+      if (!validated.success) {
+        throw new ApiError(
+          502,
+          "OPENROUTER_SCHEMA_MISMATCH",
+          "OpenRouter returned structured data in an unexpected format after one repair attempt.",
+          "malformed_response",
+          true,
+          { issueCount: validated.error.issues.length },
+        );
+      }
+      recordAiStatus({ userId: input.userId, projectId: input.projectId, task: `${input.task}_repair`, status: "success", provider: "OpenRouter", model: OPENROUTER_MODEL, latencyMs: Date.now() - started, imageCount: 0 });
     }
     const latencyMs = Date.now() - started;
-    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "success", provider: "OpenRouter", model: OPENROUTER_MODEL, latencyMs, imageCount: input.images?.length || 0, requestId });
-    return { data: validated.data as T, raw, requestId, latencyMs };
+    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "success", provider: "OpenRouter", model: OPENROUTER_MODEL, latencyMs, imageCount: attachmentCount, requestId });
+    return { data: validated.data as T, raw: effectiveRaw, requestId, latencyMs };
   } catch (cause) {
     const error = asApiError(cause);
-    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "error", provider: "OpenRouter", model: OPENROUTER_MODEL, error, latencyMs: Date.now() - started, imageCount: input.images?.length || 0, requestId });
+    recordAiStatus({ userId: input.userId, projectId: input.projectId, task: input.task, status: "error", provider: "OpenRouter", model: OPENROUTER_MODEL, error, latencyMs: Date.now() - started, imageCount: attachmentCount, requestId });
     throw error;
   }
 }

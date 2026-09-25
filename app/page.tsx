@@ -34,9 +34,10 @@ export default function HomePage() {
           <h1>Reimagine<br />your <em>space.</em></h1>
           <p>Upload a photo, describe your dream renovation, and turn your existing space into a realistic new design.</p>
           <div className="hero-actions">
-            <Link href="/projects/new" className="button button-primary button-lg">Start redesigning <ArrowRight size={18} /></Link>
-            <Link href="/dashboard" className="button button-secondary button-lg">Explore projects</Link>
+            <Link href="/demo" className="button button-primary button-lg"><Sparkles size={17} /> Try one redesign free</Link>
+            <Link href="/sign-up" className="button button-secondary button-lg">Create your studio <ArrowRight size={18} /></Link>
           </div>
+          <Link href="/dashboard" className="hero-project-link">Already designing? Explore your projects →</Link>
           <div className="hero-proof">
             <span><Check size={15} /> Real visual analysis</span>
             <span><Check size={15} /> Structure-aware editing</span>

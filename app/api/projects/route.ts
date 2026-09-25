@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireUser } from "@/lib/server/auth";
 import { getDb, newId, nowIso } from "@/lib/server/db";
-import { withApiErrors } from "@/lib/server/errors";
+import { ApiError, withApiErrors } from "@/lib/server/errors";
 import { assertSameOrigin } from "@/lib/server/security";
 import { ROOM_TYPES } from "@/lib/constants";
 
@@ -49,8 +49,26 @@ export async function POST(request: NextRequest) {
     const input = createSchema.parse(await request.json());
     const id = newId("prj");
     const now = nowIso();
-    getDb().prepare("INSERT INTO projects (id, user_id, name, room_type, status, instructions, notes, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', '', '', ?, ?)")
+    const db = getDb();
+    const insertProject = () => db.prepare("INSERT INTO projects (id, user_id, name, room_type, status, instructions, notes, created_at, updated_at) VALUES (?, ?, ?, ?, 'draft', '', '', ?, ?)")
       .run(id, user.id, input.name, input.roomType, now, now);
+    if (user.isGuest) {
+      db.transaction(() => {
+        const claim = db.prepare("UPDATE users SET demo_project_used = 1 WHERE id = ? AND is_guest = 1 AND demo_project_used = 0").run(user.id);
+        if (claim.changes !== 1) {
+          throw new ApiError(
+            403,
+            "DEMO_PROJECT_LIMIT",
+            "The demo includes one renovation project. Create an account to start another.",
+            "authorization",
+            true,
+          );
+        }
+        insertProject();
+      })();
+    } else {
+      insertProject();
+    }
     return NextResponse.json({ project: { id, ...input, status: "draft", createdAt: now, updatedAt: now } }, { status: 201 });
   });
 }

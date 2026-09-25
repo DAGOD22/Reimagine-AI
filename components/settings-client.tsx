@@ -19,14 +19,16 @@ export function SettingsClient() {
   const [accountName, setAccountName] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [passwordConfigured, setPasswordConfigured] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     Promise.all([
-      apiFetch<{ preferences: Preferences }>("/api/settings"),
+      apiFetch<{ preferences: Preferences; passwordConfigured: boolean }>("/api/settings"),
       apiFetch<{ user: UserSafe | null }>("/api/auth/me"),
     ]).then(([settings, account]) => {
       setValues(settings.preferences);
+      setPasswordConfigured(settings.passwordConfigured);
       setUser(account.user);
       setAccountName(account.user?.name || "");
     }).catch((caught) => setError(caught instanceof ClientApiError ? caught.message : "Settings could not be loaded."))
@@ -47,7 +49,7 @@ export function SettingsClient() {
   async function saveAccount() {
     setAccountSaving(true); setError(""); setMessage("");
     try {
-      const data = await apiFetch<{ user: UserSafe }>("/api/account", {
+      const data = await apiFetch<{ user: UserSafe; passwordConfigured: boolean }>("/api/account", {
         method: "PATCH",
         body: JSON.stringify({
           name: accountName,
@@ -55,7 +57,7 @@ export function SettingsClient() {
           newPassword: newPassword || undefined,
         }),
       });
-      setUser(data.user); setCurrentPassword(""); setNewPassword(""); setMessage("Account updated.");
+      setUser(data.user); setPasswordConfigured(data.passwordConfigured); setCurrentPassword(""); setNewPassword(""); setMessage("Account updated.");
     } catch (caught) { setError(caught instanceof ClientApiError ? caught.message : "Account could not be updated."); }
     finally { setAccountSaving(false); }
   }
@@ -70,8 +72,8 @@ export function SettingsClient() {
           <div className="account-settings-grid">
             <label><span>Name</span><input value={accountName} onChange={(event) => setAccountName(event.target.value)} minLength={2} maxLength={80} /></label>
             <label><span>Email</span><input value={user?.email || ""} readOnly aria-readonly="true" /></label>
-            <label><span>Current password</span><input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" placeholder="Only needed to change password" /></label>
-            <label><span>New password</span><input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={10} autoComplete="new-password" placeholder="At least 10 characters" /></label>
+            {passwordConfigured && <label><span>Current password</span><input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" placeholder="Only needed to change password" /></label>}
+            <label><span>{passwordConfigured ? "New password" : "Add a password"}</span><input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={10} autoComplete="new-password" placeholder={passwordConfigured ? "At least 10 characters" : "Optional—use email sign-in too"} /></label>
           </div>
           <button className="button button-secondary account-save" onClick={saveAccount} disabled={accountSaving || accountName.trim().length < 2}>{accountSaving ? <LoaderCircle className="spin" size={17} /> : <ShieldCheck size={17} />} Update account</button>
         </section>

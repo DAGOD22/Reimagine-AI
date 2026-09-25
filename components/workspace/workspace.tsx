@@ -6,14 +6,17 @@ import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowRight,
   BadgeDollarSign,
   Bot,
   BoxSelect,
+  Camera,
   Check,
   ChevronDown,
   CircleDollarSign,
   Download,
   FileText,
+  FileUp,
   Fullscreen,
   ImagePlus,
   Images,
@@ -57,6 +60,7 @@ import type {
   ProductCategory,
   ProjectDetail,
   ProjectImage,
+  ProjectFile,
   RenovationPlan,
   SpaceAnalysis,
   UserSafe,
@@ -104,6 +108,7 @@ export function Workspace({ initialProject, user }: { initialProject: ProjectDet
   const [uploading, setUploading] = useState(false);
   const autoAnalysis = useRef(false);
   const primaryInput = useRef<HTMLInputElement>(null);
+  const cameraInput = useRef<HTMLInputElement>(null);
   const referenceInput = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -210,9 +215,38 @@ export function Workspace({ initialProject, user }: { initialProject: ProjectDet
     finally { setUploading(false); }
   }
 
+  async function uploadReferenceAssets(items: FileList | File[]) {
+    const selected = Array.from(items);
+    const imageFiles = selected.filter((file) => file.type.startsWith("image/"));
+    const documents = selected.filter((file) => !file.type.startsWith("image/"));
+    if (!selected.length) return;
+    setUploading(true); setError(null);
+    try {
+      if (imageFiles.length) {
+        const imageForm = new FormData(); imageForm.append("kind", "reference");
+        imageFiles.forEach((file) => imageForm.append("images", file));
+        await apiFetch(`/api/projects/${project.id}/images`, { method: "POST", body: imageForm });
+      }
+      if (documents.length) {
+        const fileForm = new FormData();
+        documents.forEach((file) => fileForm.append("files", file));
+        await apiFetch(`/api/projects/${project.id}/files`, { method: "POST", body: fileForm });
+      }
+      await refreshProject();
+      setActiveTool("references");
+    } catch (caught) {
+      setError(caught instanceof ClientApiError ? caught : new ClientApiError("The reference could not be uploaded."));
+    } finally { setUploading(false); }
+  }
+
   async function removeReference(image: ProjectImage) {
     try { await apiFetch(`/api/projects/${project.id}/images?imageId=${image.id}`, { method: "DELETE" }); await refreshProject(); }
     catch (caught) { setError(caught instanceof ClientApiError ? caught : new ClientApiError("The reference could not be removed.")); }
+  }
+
+  async function removeProjectFile(file: ProjectFile) {
+    try { await apiFetch(`/api/projects/${project.id}/files?fileId=${file.id}`, { method: "DELETE" }); await refreshProject(); }
+    catch (caught) { setError(caught instanceof ClientApiError ? caught : new ClientApiError("The project file could not be removed.")); }
   }
 
   async function saveNotes() {
@@ -289,7 +323,7 @@ export function Workspace({ initialProject, user }: { initialProject: ProjectDet
     <main className="workspace-page">
       <header className="workspace-topbar">
         <div className="workspace-brand"><Link href="/dashboard" className="back-square" aria-label="Back to projects"><ArrowLeft size={18} /></Link><Logo compact /><span className="top-divider" /><button className="project-title-button" onClick={renameProject}><strong>{project.name}</strong><small>{titleCase(project.roomType)}</small><ChevronDown size={15} /></button></div>
-        <div className="workspace-save-state"><Check size={14} /><span>Saved privately</span></div>
+        <div className={`workspace-save-state ${user.isGuest ? "demo" : ""}`}>{user.isGuest ? <><Sparkles size={14} /><span>Demo · one redesign</span></> : <><Check size={14} /><span>Saved privately</span></>}</div>
         <div className="workspace-top-actions">
           {selectedVersion && <a className="icon-button hide-mobile" href={`/api/media/${selectedVersion.imageId}?download=1`} title="Download design"><Download size={18} /></a>}
           {selectedVersion && <button className="icon-button hide-mobile" onClick={exportComparison} title="Export comparison"><Images size={18} /></button>}
@@ -310,12 +344,13 @@ export function Workspace({ initialProject, user }: { initialProject: ProjectDet
             <div className="canvas-actions">
               {selectedVersion && <button className={`tool-button ${selectionMode ? "active" : ""}`} onClick={() => { setSelectionMode((value) => !value); setViewMode("image"); }} title="Point to an area"><BoxSelect size={17} /> <span className="hide-mobile">Select area</span></button>}
               <button className="icon-button" onClick={() => canvasRef.current?.requestFullscreen?.()} title="Fullscreen"><Maximize2 size={17} /></button>
-              <button className="tool-button" onClick={() => primaryInput.current?.click()} disabled={uploading}><Replace size={17} /><span className="hide-mobile">Replace photo</span></button>
+              {!user.isGuest && <button className="tool-button" onClick={() => primaryInput.current?.click()} disabled={uploading}><Replace size={17} /><span className="hide-mobile">Replace photo</span></button>}
+              {!original && <button className="tool-button" onClick={() => cameraInput.current?.click()} disabled={uploading}><Camera size={17} /><span className="hide-mobile">Camera</span></button>}
             </div>
           </div>
 
           <div ref={canvasRef} className={`image-stage ${selectionMode ? "selecting" : ""}`} onClick={canvasClick}>
-            {!currentUrl ? <div className="canvas-empty"><Upload size={30} /><h2>Add your space</h2><p>Upload one clear primary photograph to begin.</p><button className="button button-primary" onClick={() => primaryInput.current?.click()}>Choose image</button></div>
+            {!currentUrl ? <div className="canvas-empty"><Upload size={30} /><h2>Add your space</h2><p>Upload a file, choose an image, or take a photo.</p><div className="canvas-empty-actions"><button className="button button-primary" onClick={() => primaryInput.current?.click()}><ImagePlus size={16} /> Choose image</button><button className="button button-light" onClick={() => cameraInput.current?.click()}><Camera size={16} /> Camera</button></div></div>
               : viewMode === "compare" && original && selectedVersion ? <BeforeAfter before={original.url} after={selectedVersion.imageUrl} controls />
               : <div className="single-image-wrap"><img src={currentUrl} alt={selectedVersion ? `Redesign version ${selectedVersion.number}` : "Original space"} /><span className="canvas-label">{selectedVersion ? `Version ${selectedVersion.number}` : "Original"}</span>{selectionMode && <span className="selection-instruction"><BoxSelect size={15} /> Click an object or area to target it</span>}{pointer && selectedVersion && <span className="selection-marker" style={{ left: `${pointer.x * 100}%`, top: `${pointer.y * 100}%` }}><i /></span>}</div>}
             {operation && <ProgressOverlay task={operation.task} startedAt={operation.startedAt} onCancel={() => operation.controller.abort()} />}
@@ -328,16 +363,17 @@ export function Workspace({ initialProject, user }: { initialProject: ProjectDet
             {project.versions.map((version) => <button className={selectedVersion?.id === version.id ? "version-thumb active" : "version-thumb"} onClick={() => { setSelectedVersionId(version.id); setViewMode("image"); }} key={version.id}><img src={version.thumbnailUrl} alt={`Version ${version.number}`} /><small>V{version.number}</small></button>)}
             {project.plan && <button className="version-add" onClick={() => { setActiveTool("design"); setRightOpen(true); }}><Plus size={20} /><small>New edit</small></button>}
           </div>
-          <input ref={primaryInput} type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" capture="environment" onChange={(event) => event.target.files && void uploadImages(event.target.files, "original")} />
+          <input ref={primaryInput} type="file" className="sr-only" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" onChange={(event) => event.target.files && void uploadImages(event.target.files, "original")} />
+          <input ref={cameraInput} type="file" className="sr-only" accept="image/*" capture="environment" onChange={(event) => event.target.files && void uploadImages(event.target.files, "original")} />
         </section>
 
         {rightOpen && <aside className="workspace-panel">
           <div className="panel-scroll">
             {error && <ErrorNotice code={error.code} message={error.message} onRetry={retry} onOpenStatus={() => { setForceStatus(true); setActiveTool("status"); }} />}
-            {activeTool === "design" && <DesignPanel project={project} instructions={instructions} setInstructions={setInstructions} editInstructions={editInstructions} setEditInstructions={setEditInstructions} selectedVersion={selectedVersion} pointer={pointer} setPointer={setPointer} selectionMode={selectionMode} setSelectionMode={setSelectionMode} onAnalyze={runAnalysis} onPlan={runPlan} onGenerate={runGenerate} onEdit={runEdit} busy={Boolean(operation)} />}
+            {activeTool === "design" && <DesignPanel project={project} isGuest={user.isGuest} instructions={instructions} setInstructions={setInstructions} editInstructions={editInstructions} setEditInstructions={setEditInstructions} selectedVersion={selectedVersion} pointer={pointer} setPointer={setPointer} selectionMode={selectionMode} setSelectionMode={setSelectionMode} onAnalyze={runAnalysis} onPlan={runPlan} onGenerate={runGenerate} onEdit={runEdit} busy={Boolean(operation)} />}
             {activeTool === "analysis" && <AnalysisPanel analysis={project.analysis} question={question} setQuestion={setQuestion} answer={answer} onAnalyze={runAnalysis} onAsk={askQuestion} busy={Boolean(operation)} />}
             {activeTool === "plan" && <PlanPanel plan={project.plan} onCreate={runPlan} onGenerate={runGenerate} busy={Boolean(operation)} />}
-            {activeTool === "references" && <ReferencesPanel references={references} inputRef={referenceInput} onUpload={uploadImages} onRemove={removeReference} uploading={uploading} />}
+            {activeTool === "references" && <ReferencesPanel references={references} files={project.files} isGuest={user.isGuest} inputRef={referenceInput} onUpload={uploadReferenceAssets} onRemove={removeReference} onRemoveFile={removeProjectFile} uploading={uploading} />}
             {activeTool === "budget" && <BudgetPanel plan={project.plan} budget={project.budget} input={budgetInput} setInput={setBudgetInput} onCreate={runBudget} busy={Boolean(operation)} />}
             {activeTool === "products" && <ProductsPanel plan={project.plan} products={project.products} onCreate={runProducts} busy={Boolean(operation)} />}
             {activeTool === "color" && <ColorPanel imageAvailable={Boolean(currentUrl)} pointer={pointer} color={color} onIdentify={runColor} onSelect={() => { setSelectionMode(true); setViewMode("image"); }} busy={Boolean(operation)} />}
@@ -347,7 +383,7 @@ export function Workspace({ initialProject, user }: { initialProject: ProjectDet
           {activeTool !== "status" && <DevelopmentStatus statuses={statuses} />}
         </aside>}
       </div>
-      <input ref={referenceInput} type="file" multiple className="sr-only" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" onChange={(event) => event.target.files && void uploadImages(event.target.files, "reference")} />
+      <input ref={referenceInput} type="file" multiple className="sr-only" accept="image/jpeg,image/png,image/webp,image/avif,image/gif,application/pdf,text/plain,text/markdown,text/csv,application/json" onChange={(event) => event.target.files && void uploadReferenceAssets(event.target.files)} />
     </main>
   );
 }
@@ -357,10 +393,18 @@ function PanelHeader({ eyebrow, title, text }: { eyebrow: string; title: string;
 }
 
 function DesignPanel(props: {
-  project: ProjectDetail; instructions: string; setInstructions: (value: string) => void; editInstructions: string; setEditInstructions: (value: string) => void;
+  project: ProjectDetail; isGuest: boolean; instructions: string; setInstructions: (value: string) => void; editInstructions: string; setEditInstructions: (value: string) => void;
   selectedVersion?: Version; pointer: Pointer | null; setPointer: (value: Pointer | null) => void; selectionMode: boolean; setSelectionMode: (value: boolean) => void;
   onAnalyze: () => void; onPlan: () => void; onGenerate: () => void; onEdit: () => void; busy: boolean;
 }) {
+  if (props.selectedVersion && props.isGuest) return <div className="panel-content demo-upgrade-panel">
+    <span className="demo-complete-mark"><Check size={27} /></span>
+    <PanelHeader eyebrow="Demo redesign complete" title="Your first transformation is ready." text="Create a free account to preserve this project, edit individual details, add more references, build version history, and export the full renovation package." />
+    <div className="demo-unlock-list"><span><Layers3 size={16} /> Unlimited design versions</span><span><BoxSelect size={16} /> Object and area edits</span><span><FileText size={16} /> Plans, budgets, and exports</span></div>
+    <Link className="button button-primary button-lg button-full" href="/sign-up">Save project & keep designing <ArrowRight size={17} /></Link>
+    <Link className="button button-secondary button-full" href="/sign-in">I already have an account</Link>
+    <small className="button-caption">Your demo project transfers to your account after sign-in.</small>
+  </div>;
   if (props.selectedVersion) return <div className="panel-content"><PanelHeader eyebrow={`Version ${props.selectedVersion.number}`} title="Edit this design" text="The current version becomes the visual context. Your next edit will not restart from the original." />
     {props.pointer && <div className="target-card"><span className="target-dot" /><div><strong>Approximate area selected</strong><p>{Math.round(props.pointer.x * 100)}% from left · {Math.round(props.pointer.y * 100)}% from top</p></div><button className="icon-button" onClick={() => props.setPointer(null)}><X size={15} /></button></div>}
     <label className="field-label"><span>What should change?</span><textarea className="large-textarea" value={props.editInstructions} onChange={(event) => props.setEditInstructions(event.target.value)} placeholder="Make the cabinets darker. Keep everything else exactly the same." rows={6} maxLength={8000} /></label>
@@ -372,6 +416,7 @@ function DesignPanel(props: {
   </div>;
 
   return <div className="panel-content"><PanelHeader eyebrow="Design direction" title="What would you like to change?" text="Be as specific as you like. Materials, lighting, layout, objects, and preservation requests all matter." />
+    {props.isGuest && <div className="demo-meter-card"><div><Sparkles size={15} /><strong>Demo generation</strong></div><span>1 redesign remaining</span><i><b /></i></div>}
     <textarea className="large-textarea prompt-textarea" value={props.instructions} onChange={(event) => props.setInstructions(event.target.value)} placeholder="Make this room modern and warm. Replace the flooring with light oak, add built-in storage, repaint the walls in a warm white, add indirect lighting, and keep the existing windows and room layout." rows={8} maxLength={8000} />
     <div className="char-count">{props.instructions.length.toLocaleString()} / 8,000</div>
     <div className="suggestion-block"><span>Quick direction</span><div className="suggestion-chips">{STYLE_SUGGESTIONS.map((style) => <button key={style} onClick={() => props.setInstructions(`${props.instructions}${props.instructions ? " " : ""}Use a ${style.toLowerCase()} design language.`)}>{style}</button>)}</div></div>
@@ -414,11 +459,15 @@ function PlanPanel({ plan, onCreate, onGenerate, busy }: { plan: RenovationPlan 
   </div>;
 }
 
-function ReferencesPanel({ references, inputRef, onUpload, onRemove, uploading }: { references: ProjectImage[]; inputRef: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | File[], kind: "reference") => void; onRemove: (image: ProjectImage) => void; uploading: boolean }) {
-  return <div className="panel-content"><PanelHeader eyebrow="Reference inspiration" title="Show, don't just tell." text="Add furniture, palettes, materials, lighting, architecture, gardens, or complete rooms. References guide the redesign without replacing the real geometry." />
-    <button className="reference-drop" onClick={() => inputRef.current?.click()} disabled={uploading}><span>{uploading ? <LoaderCircle className="spin" size={22} /> : <ImagePlus size={22} />}</span><strong>{uploading ? "Uploading..." : "Add inspiration images"}</strong><small>Up to 8 images · 10 MB each</small></button>
-    {!references.length ? <div className="reference-empty"><Images size={27} /><p>No references yet.</p><span>Your written direction still works without them.</span></div> : <div className="reference-grid">{references.map((image, index) => <figure key={image.id}><img src={image.thumbnailUrl} alt={`Reference ${index + 1}`} /><figcaption>Reference {index + 1}</figcaption><button onClick={() => onRemove(image)} aria-label={`Remove reference ${index + 1}`}><X size={14} /></button></figure>)}</div>}
-    <div className="honesty-note"><AlertCircle size={16} /><p>The design brain treats these as inspiration. Unrelated architecture from a reference will not intentionally replace the primary space.</p></div>
+function ReferencesPanel({ references, files, isGuest, inputRef, onRemove, onRemoveFile, uploading }: { references: ProjectImage[]; files: ProjectFile[]; isGuest: boolean; inputRef: React.RefObject<HTMLInputElement | null>; onUpload: (files: FileList | File[]) => void; onRemove: (image: ProjectImage) => void; onRemoveFile: (file: ProjectFile) => void; uploading: boolean }) {
+  const assetCount = references.length + files.length;
+  return <div className="panel-content"><PanelHeader eyebrow="Reference inspiration" title="Show it—or attach it." text="Add furniture, palettes, materials, complete rooms, a PDF brief, floorplan notes, or a material schedule. The design brain uses these alongside the real space." />
+    <button className="reference-drop" onClick={() => inputRef.current?.click()} disabled={uploading || (isGuest && assetCount >= 1)}><span>{uploading ? <LoaderCircle className="spin" size={22} /> : <FileUp size={22} />}</span><strong>{uploading ? "Uploading..." : isGuest && assetCount >= 1 ? "Demo reference added" : "Add inspiration images or project files"}</strong><small>{isGuest ? "Demo limit: 1 reference · 10 MB" : "Images, PDF, TXT, Markdown, CSV or JSON · max 10 MB each"}</small></button>
+    {!assetCount ? <div className="reference-empty"><Images size={27} /><p>No references yet.</p><span>Your written direction still works without them.</span></div> : <>
+      {references.length > 0 && <div className="reference-grid">{references.map((image, index) => <figure key={image.id}><img src={image.thumbnailUrl} alt={`Reference ${index + 1}`} /><figcaption>Image {index + 1}</figcaption><button onClick={() => onRemove(image)} aria-label={`Remove reference ${index + 1}`}><X size={14} /></button></figure>)}</div>}
+      {files.length > 0 && <div className="project-file-list">{files.map((file) => <article key={file.id}><span><FileText size={18} /></span><div><strong>{file.filename}</strong><small>{file.mimeType} · {(file.sizeBytes / 1024).toFixed(0)} KB</small></div><a href={file.downloadUrl} aria-label={`Download ${file.filename}`}><Download size={14} /></a><button onClick={() => onRemoveFile(file)} aria-label={`Remove ${file.filename}`}><X size={14} /></button></article>)}</div>}
+    </>}
+    <div className="honesty-note"><AlertCircle size={16} /><p>References guide palette, material, furniture, and atmosphere. They do not override the primary image’s geometry. Measurements in documents remain unverified until checked on site.</p></div>
   </div>;
 }
 

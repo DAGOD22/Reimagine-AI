@@ -49,6 +49,9 @@ export function serializeProject(projectId: string, userId: string): ProjectDeta
   const images = db
     .prepare("SELECT id, kind, filename, width, height, size_bytes, version_id, created_at FROM project_images WHERE project_id = ? AND user_id = ? ORDER BY created_at ASC")
     .all(projectId, userId) as ImageRow[];
+  const files = db
+    .prepare("SELECT id, filename, mime_type, size_bytes, extracted_text, created_at FROM project_files WHERE project_id = ? AND user_id = ? ORDER BY created_at ASC")
+    .all(projectId, userId) as Array<{ id: string; filename: string; mime_type: string; size_bytes: number; extracted_text: string; created_at: string }>;
   const analysis = db
     .prepare("SELECT payload_json FROM analyses WHERE project_id = ? AND user_id = ? AND kind = 'space' ORDER BY created_at DESC LIMIT 1")
     .get(projectId, userId) as { payload_json: string } | undefined;
@@ -101,6 +104,15 @@ export function serializeProject(projectId: string, userId: string): ProjectDeta
       sizeBytes: image.size_bytes,
       versionId: image.version_id,
       createdAt: image.created_at,
+    })),
+    files: files.map((file) => ({
+      id: file.id,
+      filename: file.filename,
+      mimeType: file.mime_type,
+      sizeBytes: file.size_bytes,
+      hasExtractedText: Boolean(file.extracted_text),
+      downloadUrl: `/api/files/${file.id}`,
+      createdAt: file.created_at,
     })),
     analysis: analysis ? safeJsonParse<SpaceAnalysis | null>(analysis.payload_json, null) : null,
     plan: plan ? safeJsonParse<RenovationPlan | null>(plan.payload_json, null) : null,

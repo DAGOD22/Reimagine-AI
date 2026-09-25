@@ -46,8 +46,17 @@ export async function DELETE(request: NextRequest, context: Context) {
     const user = await requireUser();
     const { id } = await context.params;
     requireProject(id, user.id);
-    getDb().prepare("DELETE FROM projects WHERE id = ? AND user_id = ?").run(id, user.id);
-    await fs.rm(path.join(process.cwd(), "data", "uploads", user.id, id), { recursive: true, force: true });
+    const db = getDb();
+    const storedPaths = [
+      ...(db.prepare("SELECT file_path, thumbnail_path FROM project_images WHERE project_id = ? AND user_id = ?").all(id, user.id) as Array<{ file_path: string; thumbnail_path: string }>).flatMap((item) => [item.file_path, item.thumbnail_path]),
+      ...(db.prepare("SELECT file_path FROM project_files WHERE project_id = ? AND user_id = ?").all(id, user.id) as Array<{ file_path: string }>).map((item) => item.file_path),
+    ];
+    db.prepare("DELETE FROM projects WHERE id = ? AND user_id = ?").run(id, user.id);
+    await Promise.allSettled(storedPaths.map((storedPath) => fs.unlink(storedPath)));
+    await Promise.all([
+      fs.rm(path.join(process.cwd(), "data", "uploads", user.id, id), { recursive: true, force: true }),
+      fs.rm(path.join(process.cwd(), "data", "files", user.id, id), { recursive: true, force: true }),
+    ]);
     return NextResponse.json({ ok: true });
   });
 }

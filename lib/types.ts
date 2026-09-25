@@ -23,6 +23,7 @@ export interface UserSafe {
   email: string;
   name: string;
   createdAt: string;
+  isGuest: boolean;
 }
 
 export interface SpaceAnalysis {
@@ -131,6 +132,16 @@ export interface ProjectImage {
   createdAt: string;
 }
 
+export interface ProjectFile {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  hasExtractedText: boolean;
+  downloadUrl: string;
+  createdAt: string;
+}
+
 export interface Version {
   id: string;
   number: number;
@@ -153,6 +164,7 @@ export interface ProjectDetail {
   createdAt: string;
   updatedAt: string;
   images: ProjectImage[];
+  files: ProjectFile[];
   analysis: SpaceAnalysis | null;
   plan: RenovationPlan | null;
   budget: BudgetPlan | null;

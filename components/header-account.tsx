@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { UserSafe } from "@/lib/types";
 import { apiFetch } from "@/lib/client/api";
@@ -12,7 +12,16 @@ export function HeaderAccount({ user }: { user: UserSafe | null }) {
     return (
       <div className="header-actions">
         <Link className="text-button hide-mobile" href="/sign-in">Sign in</Link>
+        <Link className="button button-secondary button-sm hide-mobile" href="/demo">Try demo</Link>
         <Link className="button button-primary button-sm" href="/sign-up">Start redesigning</Link>
+      </div>
+    );
+  }
+  if (user.isGuest) {
+    return (
+      <div className="header-actions demo-account-actions">
+        <span className="demo-session-chip"><Sparkles size={14} /> Demo mode</span>
+        <Link className="button button-primary button-sm" href="/sign-up">Save & continue</Link>
       </div>
     );
   }

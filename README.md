@@ -21,9 +21,10 @@ USER IMAGE(S)
 
 ## Core capabilities
 
-- Real email/password authentication with password hashing, opaque server sessions, HttpOnly cookies, and per-user data access checks
+- Real email/password authentication plus Google and Microsoft OAuth with PKCE, signed ID-token verification, opaque server sessions, HttpOnly cookies, and per-user data access checks
+- A one-renovation guest demo whose private project transfers into password or OAuth accounts
 - Private persistent projects in SQLite
-- Validated, normalized image uploads with pixel and byte limits
+- Validated, normalized image uploads with pixel and byte limits, plus private PDF and UTF-8 project-document uploads
 - Real OpenRouter multimodal requests using `google/gemma-4-26b-a4b-it:free`
 - Structured space analysis, design plans, budget estimates, product search briefs, color estimates, design Q&A, and image-edit prompts
 - Separate image generation/editing through FLUX on FAL (production) or Pollinations Kontext (community evaluation)
@@ -66,6 +67,17 @@ Generate an auth secret:
 openssl rand -hex 48
 ```
 
+Optional Google and Microsoft sign-in:
+
+```dotenv
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+```
+
+Register `${APP_URL}/api/auth/oauth/google/callback` and `${APP_URL}/api/auth/oauth/microsoft/callback` with the corresponding providers. Buttons report missing provider configuration instead of simulating login.
+
 ### Image editor
 
 For production-quality private image editing, use FAL:
@@ -95,7 +107,8 @@ When the app is opened through Arena's live preview, the forwarded public origin
 
 - AI and image-provider keys are read only from server environment variables.
 - No secret is rendered, logged, returned by a status endpoint, or included in client JavaScript.
-- Images are stored outside `public/` and served through ownership-checked media routes.
+- Images and project documents are stored outside `public/` and served through ownership-checked routes.
+- OAuth authorization uses one-time state, browser binding, PKCE, nonce checks, and provider JWKS signature validation.
 - External image editors receive either provider uploads (FAL) or short-lived signed URLs (Pollinations).
 - Password hashes use bcrypt with cost 12.
 - Session tokens are random, only hashes are stored, and cookies are HttpOnly/SameSite.
@@ -132,6 +145,10 @@ The test suite covers structured model-response parsing, schema rejection, and c
 - `POST /api/auth/sign-up`
 - `POST /api/auth/sign-in`
 - `POST /api/auth/sign-out`
+- `GET /api/auth/oauth/:provider/start`
+- `GET /api/auth/oauth/:provider/callback`
+- `GET /api/auth/providers`
+- `GET /demo`
 - `PATCH /api/account`
 - `GET /api/projects`
 - `POST /api/projects`
@@ -139,6 +156,9 @@ The test suite covers structured model-response parsing, schema rejection, and c
 - `PATCH /api/projects/:id`
 - `DELETE /api/projects/:id`
 - `POST /api/projects/:id/images`
+- `POST /api/projects/:id/files`
+- `DELETE /api/projects/:id/files?fileId=...`
+- `GET /api/files/:id`
 - `POST /api/analyze` (also `/api/ai/analyze`)
 - `POST /api/ai/chat`
 - `POST /api/generate`

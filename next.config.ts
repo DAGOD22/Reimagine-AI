@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
+const previewHost = process.env.E2B_SANDBOX_ID
+  ? `3000-${process.env.E2B_SANDBOX_ID}.e2b.app`
+  : undefined;
+
 const nextConfig: NextConfig = {
+  // Arena's HTTPS preview is a different origin from the internal dev server.
+  // Allow only this sandbox's generated host so hydration and form handlers work.
+  allowedDevOrigins: previewHost ? [previewHost] : [],
   serverExternalPackages: ["better-sqlite3", "sharp"],
   experimental: {
     serverActions: {

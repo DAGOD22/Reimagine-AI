@@ -1,7 +1,8 @@
 import "server-only";
 
 import { getDb, newId, nowIso } from "@/lib/server/db";
-import { getLatestOriginal, getReferenceImages, type getImageRow } from "@/lib/server/images";
+import { getLatestOriginal, getReferenceImages, getImageRow } from "@/lib/server/images";
+import { getProjectFileRows, type ProjectFileRow } from "@/lib/server/files";
 import { requireProject } from "@/lib/server/projects";
 import { safeJsonParse } from "@/lib/utils";
 import type { BudgetPlan, ColorEstimate, ProductCategory, RenovationPlan, SpaceAnalysis } from "@/lib/types";
@@ -16,17 +17,29 @@ function visionImage(row: ImageRow, label: string) {
   return { path: row.file_path, mimeType: row.mime_type, label };
 }
 
+function projectDocument(row: ProjectFileRow, index: number) {
+  return {
+    path: row.file_path,
+    mimeType: row.mime_type,
+    filename: row.filename,
+    extractedText: row.extracted_text,
+    label: `PROJECT DOCUMENT ${index + 1}. Treat user-supplied measurements as notes that still require site verification.`,
+  };
+}
+
 export async function analyzeSpace(input: { userId: string; projectId: string; instructions?: string }) {
   const project = requireProject(input.projectId, input.userId);
   const original = getLatestOriginal(input.projectId, input.userId);
   if (!original) throw new ApiError(400, "ORIGINAL_IMAGE_REQUIRED", "Upload a primary space image first.", "invalid_image", true);
   const references = getReferenceImages(input.projectId, input.userId);
+  const documents = getProjectFileRows(input.projectId, input.userId);
   const result = await callOpenRouter<SpaceAnalysis>({
     userId: input.userId,
     projectId: input.projectId,
     task: "space_analysis",
     prompt: analysisPrompt({ roomType: project.room_type, instructions: input.instructions || project.instructions }),
     images: [visionImage(original, "PRIMARY SPACE PHOTOGRAPH"), ...references.map((row, index) => visionImage(row, `REFERENCE INSPIRATION ${index + 1}`))],
+    files: documents.map(projectDocument),
     schema: spaceAnalysisSchema,
   });
   const id = newId("ana");
@@ -53,12 +66,14 @@ export async function createPlan(input: { userId: string; projectId: string; ins
   const original = getLatestOriginal(input.projectId, input.userId);
   if (!original) throw new ApiError(400, "ORIGINAL_IMAGE_REQUIRED", "Upload a primary space image first.", "invalid_image", true);
   const references = getReferenceImages(input.projectId, input.userId);
+  const documents = getProjectFileRows(input.projectId, input.userId);
   const result = await callOpenRouter<RenovationPlan>({
     userId: input.userId,
     projectId: input.projectId,
     task: "renovation_plan",
     prompt: planPrompt({ roomType: project.room_type, instructions: input.instructions, analysis, referenceCount: references.length }),
     images: [visionImage(original, "PRIMARY SPACE PHOTOGRAPH"), ...references.map((row, index) => visionImage(row, `REFERENCE INSPIRATION ${index + 1}`))],
+    files: documents.map(projectDocument),
     schema: renovationPlanSchema,
   });
   const id = newId("pln");

@@ -16,8 +16,13 @@ const schema = z.object({
 export async function GET() {
   return withApiErrors(async () => {
     const user = await requireUser();
-    const row = getDb().prepare("SELECT * FROM preferences WHERE user_id = ?").get(user.id) as Record<string, string>;
-    return NextResponse.json({ preferences: { appearance: row.appearance, currency: row.currency, units: row.units, aiDetail: row.ai_detail, privacyMode: row.privacy_mode } });
+    const db = getDb();
+    const row = db.prepare("SELECT * FROM preferences WHERE user_id = ?").get(user.id) as Record<string, string>;
+    const account = db.prepare("SELECT has_password FROM users WHERE id = ?").get(user.id) as { has_password: number };
+    return NextResponse.json({
+      preferences: { appearance: row.appearance, currency: row.currency, units: row.units, aiDetail: row.ai_detail, privacyMode: row.privacy_mode },
+      passwordConfigured: Boolean(account.has_password),
+    });
   });
 }
 

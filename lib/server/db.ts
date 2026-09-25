@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   name TEXT NOT NULL,
   password_hash TEXT NOT NULL,
+  is_guest INTEGER NOT NULL DEFAULT 0,
+  demo_project_used INTEGER NOT NULL DEFAULT 0,
+  has_password INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -25,6 +28,32 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
+CREATE TABLE IF NOT EXISTS oauth_accounts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK(provider IN ('google', 'microsoft')),
+  provider_account_id TEXT NOT NULL,
+  provider_email TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(provider, provider_account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_accounts_user ON oauth_accounts(user_id);
+
+CREATE TABLE IF NOT EXISTS oauth_states (
+  id TEXT PRIMARY KEY,
+  state_hash TEXT NOT NULL UNIQUE,
+  browser_hash TEXT NOT NULL,
+  provider TEXT NOT NULL CHECK(provider IN ('google', 'microsoft')),
+  code_verifier TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  return_to TEXT NOT NULL,
+  guest_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
+
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -33,6 +62,7 @@ CREATE TABLE IF NOT EXISTS projects (
   status TEXT NOT NULL DEFAULT 'draft',
   instructions TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
+  guest_generation_claimed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -54,6 +84,20 @@ CREATE TABLE IF NOT EXISTS project_images (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_images_project_kind ON project_images(project_id, kind, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS project_files (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'document',
+  file_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  extracted_text TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_files_project ON project_files(project_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS analyses (
   id TEXT PRIMARY KEY,
@@ -118,6 +162,16 @@ CREATE TABLE IF NOT EXISTS product_recommendations (
 );
 CREATE INDEX IF NOT EXISTS idx_products_project ON product_recommendations(project_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS design_messages (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_design_messages_project ON design_messages(project_id, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS preferences (
   user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   appearance TEXT NOT NULL DEFAULT 'system',
@@ -164,6 +218,22 @@ export function getDb(): Database.Database {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.exec(schema);
+  const userColumns = db.pragma("table_info(users)") as Array<{ name: string }>;
+  if (!userColumns.some((column) => column.name === "is_guest")) {
+    db.exec("ALTER TABLE users ADD COLUMN is_guest INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!userColumns.some((column) => column.name === "demo_project_used")) {
+    db.exec("ALTER TABLE users ADD COLUMN demo_project_used INTEGER NOT NULL DEFAULT 0");
+    db.exec("UPDATE users SET demo_project_used = 1 WHERE is_guest = 1 AND EXISTS (SELECT 1 FROM projects WHERE projects.user_id = users.id)");
+  }
+  if (!userColumns.some((column) => column.name === "has_password")) {
+    db.exec("ALTER TABLE users ADD COLUMN has_password INTEGER NOT NULL DEFAULT 1");
+    db.exec("UPDATE users SET has_password = 0 WHERE is_guest = 1");
+  }
+  const projectColumns = db.pragma("table_info(projects)") as Array<{ name: string }>;
+  if (!projectColumns.some((column) => column.name === "guest_generation_claimed_at")) {
+    db.exec("ALTER TABLE projects ADD COLUMN guest_generation_claimed_at TEXT");
+  }
 
   globalDb.__hearthformDb = db;
   return db;

@@ -3,8 +3,9 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/auth";
 import { getDb, newId, nowIso } from "@/lib/server/db";
-import { withApiErrors } from "@/lib/server/errors";
+import { ApiError, withApiErrors } from "@/lib/server/errors";
 import { saveImageBuffer } from "@/lib/server/images";
+import { saveProjectFile } from "@/lib/server/files";
 import { requireProject } from "@/lib/server/projects";
 import { assertSameOrigin } from "@/lib/server/security";
 
@@ -16,6 +17,9 @@ export async function POST(request: NextRequest, context: Context) {
   return withApiErrors(async () => {
     assertSameOrigin(request);
     const user = await requireUser();
+    if (user.isGuest) {
+      throw new ApiError(403, "DEMO_PROJECT_LIMIT", "Create an account to duplicate this demo project and start more renovations.", "authorization", true);
+    }
     const { id } = await context.params;
     const source = requireProject(id, user.id);
     const db = getDb();
@@ -42,6 +46,15 @@ export async function POST(request: NextRequest, context: Context) {
       const images = db.prepare("SELECT id, kind, file_path, filename, version_id FROM project_images WHERE project_id = ? AND user_id = ? ORDER BY created_at ASC").all(id, user.id) as ImageRow[];
       for (const image of images.filter((item) => item.kind !== "generated")) {
         await saveImageBuffer({ userId: user.id, projectId: newProjectId, kind: image.kind, buffer: await fs.readFile(image.file_path), originalFilename: image.filename });
+      }
+      const sourceFiles = db.prepare("SELECT file_path, filename, mime_type FROM project_files WHERE project_id = ? AND user_id = ? ORDER BY created_at ASC").all(id, user.id) as Array<{ file_path: string; filename: string; mime_type: string }>;
+      for (const sourceFile of sourceFiles) {
+        const bytes = await fs.readFile(sourceFile.file_path);
+        await saveProjectFile({
+          userId: user.id,
+          projectId: newProjectId,
+          file: new File([new Uint8Array(bytes)], sourceFile.filename, { type: sourceFile.mime_type }),
+        });
       }
 
       const versionMap = new Map<string, string>();
